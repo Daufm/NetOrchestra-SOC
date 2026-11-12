@@ -18,7 +18,7 @@ services:
 
   netorchestra:
     # Pull published pre-built image from GitHub Container Registry (ghcr.io)
-    image: ghcr.io/${NETO_GH_REPO:-your-org/netorchestra-soc}:${NETO_IMAGE_TAG:-latest}
+    image: ghcr.io/${NETO_GH_REPO:-daufm/netorchestra-soc}:${NETO_IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       db:

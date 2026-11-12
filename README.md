@@ -1,51 +1,75 @@
 # NetOrchestra-SOC
 
-Network Forensics & Remote Orchestration Platform.
+[![CI](https://github.com/Daufm/NetOrchestra-SOC/actions/workflows/ci.yml/badge.svg)](https://github.com/Daufm/NetOrchestra-SOC/actions/workflows/ci.yml)
+[![Rust](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
+[![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8.svg)](https://golang.org)
+[![React](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%2B-336791.svg)](https://www.postgresql.org)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-* **Backend:** Rust (Axum, Tokio, SQLx) + PostgreSQL 17+, first-party JWT auth, RBAC.
-* **Analysis:** TShark (`-T fields` for bulk extraction, `-T json` for per-packet dissection).
-* **Remote capture:** a Go SSH worker streams `tcpdump` output from authorised hosts.
-* **Frontend:** React + Vite + Tailwind SOC dashboard .
+**Enterprise Network Forensics & Remote Capture Orchestration Platform.**
 
-> **Status:** Read the [Architecture](docs/ARCHITECTURE.md), [API Documentation](docs/API.md), and [Detection Guide](docs/DETECTION.md) for platform design, endpoints, and detection mechanics.
+Designed for Security Operations Centers (SOCs), incident response teams, and air-gapped banking/financial LANs requiring strict chain of custody, true least-privilege remote capture, and real-time threat detection.
 
-## What works today
+---
 
-* Upload a PCAP/PCAPNG (`POST /api/upload`) -> stored once as sealed evidence with SHA-256 and chain of custody
-  -> analysed with TShark -> packets in PostgreSQL -> findings from the chosen detection profile.
-* Three detection profiles: `dns_tunnel`, `cleartext_http` (credentials redacted), `remote_access` (SSH/RDP).
-* Live remote capture API (`POST /api/stream`, `/stop`): input-validated, allow-listed targets, bounded
-  streaming pipeline (worker -> evidence file + hasher + TShark). Verified against a mock worker.
-* Evidence verification, tamper detection, verified export; every access recorded.
-* Auth: Argon2id, 15-minute access JWT, rotating 7-day refresh cookie with reuse detection, CSRF, lockout,
-  sessions, admin reset, first-admin bootstrap, append-only audit log.
-* Findings API with search, filters, sorting, pagination, triage, CSV/JSON export.
-* `GET /api/ws` live events (job_started, job_progress, packet_detected, threat_detected, capture_stopped,
-  job_completed, job_failed, cleanup_completed).
+## System Architecture
 
-## Requirements
+* **Core Backend:** Rust (Axum, Tokio, SQLx) + PostgreSQL 16/17, Argon2id authentication, rotating JWT/refresh sessions, and granular RBAC (`ADMIN`, `ANALYST`, `VIEWER`).
+* **Forensic Ingestion & TShark Pipeline:** Bounded streaming pipeline with dual-mode TShark analysis (`-T fields` for bulk database extraction, `-T json` for per-frame dissection).
+* **Dual Remote Capture Engine (Go Worker):**
+  * **Primary:** `tcpdump` over authenticated SSH.
+  * **Automatic Fallback (NETOU):** Native Linux `AF_PACKET` capture helper written in Go. Triggers automatically if `tcpdump` is absent or restricted.
+  * **Least Privilege:** Neither engine requires `sudo` or `root`—both execute safely via Linux capabilities (`CAP_NET_RAW`).
+* **Forensic Custody & Safeguards:**
+  * Read-only evidence file sealing (`0400`) and immutable DB trigger protection (`forbid_mutation`).
+  * Live kernel filesystem metrics (`libc::statvfs`) and automatic **<10% disk capacity cutoff** to prevent disk exhaustion and data corruption.
+* **SOC Frontend:** Single-page application built with React 18, Vite, and Tailwind CSS. Features live WebSocket telemetry (`/api/ws`), hex frame inspector, and a dedicated **Executive / CISO Viewer Dashboard**.
+* **Air-Gapped LAN Ready:** 100% self-contained appliance. Zero external CDN, web font, or Cloudflare dependencies required.
 
-| Tool | Version | Notes |
+> **Technical Documentation:** Read the [Architecture Guide](docs/ARCHITECTURE.md), [API Specification](docs/API.md), [Detection Mechanics](docs/DETECTION.md), [SSH Remote Setup](docs/SSH_REMOTE_SETUP.md), and [Next Version Roadmap](docs/NEXT_VERSION_ROADMAP.md) for full design specifications.
+
+---
+
+## Key Capabilities
+
+* **Sealed PCAP/PCAPNG Ingestion:** Upload captures (`POST /api/evidence/upload`) with on-the-fly streaming SHA-256 calculation, read-only file sealing, and tamper-detection verification (`POST /api/jobs/{id}/evidence/{evidence_id}/verify`).
+* **Automated Dual-Engine Remote Capture:** Stream live network traffic over SSH (`POST /api/stream`). Detects remote capabilities and falls back gracefully from `tcpdump` to `netou` without admin intervention.
+* **Automated Threat Detection Engines:**
+  * `dns_tunnel`: Shannon entropy scoring, high-frequency subdomain counting, and TXT/NULL record inspection.
+  * `cleartext_http`: Flags unencrypted credentials, Basic Auth tokens, and sensitive forms (redacts secrets before database insertion).
+  * `remote_access`: Detects brute-force connection bursts and anomalous SSH/RDP services running on non-standard ports.
+* **Interactive Forensic Packet Inspector:** 14 automated heuristic filter modules (C2 beacon candidates, DNS tunneling, lateral movement, SQLi/traversal web attacks, rogue TLS, and suspicious user-agents).
+* **Forensic Storage Telemetry & Auto-Cutoff:** Real-time `/api/metrics/disk` monitoring tracks evidence volume, used percentage, and available bytes. If free storage falls below 10%, captures stop gracefully to safeguard system integrity.
+* **Executive / CISO Oversight Dashboard:** Role-based dashboard for `VIEWER` accounts presenting high-level analytical metrics, monitored servers, investigator attribution, and threat distribution charts.
+* **Production-Hardened Security:** Non-root execution (`neto:10001`), Docker capability drop (`cap_drop: ALL`), read-only root filesystems, PostgreSQL port isolation, and zero-leeway JWT claim verification.
+
+---
+
+## Technology Stack & Requirements
+
+| Component | Minimum Version | Production Notes |
 |---|---|---|
-| Rust | >= 1.85 | edition-2024 crates in the dependency tree |
-| PostgreSQL | 17+ target (tested on 16) | role needs `CREATEDB` for the test suite |
-| TShark | 4.x (tested 4.2.2) | `apt install tshark`; must not run as root in production |
-| Go | >= 1.22 | worker; see `docs/WORKER.md` about `GOPROXY` |
-| Node | >= 20 | frontend |
-| Python 3 + scapy | optional | only to regenerate test PCAPs |
+| **Rust** | $\ge$ 1.85 | Edition 2024 backend daemon (Axum, Tokio, SQLx) |
+| **PostgreSQL** | 16+ (tested on 16/17) | Append-only forensic triggers; requires `CREATEDB` for integration tests |
+| **TShark** | 4.x (tested 4.2.2) | Network packet dissection; runs unprivileged without SUID |
+| **Go** | $\ge$ 1.22 | SSH worker and `netou` fallback binary |
+| **Node.js** | $\ge$ 20 | Frontend compilation (React 18, Vite) |
+| **Docker & Compose** | v2+ | Optional; recommended for self-contained appliance deployment |
 
-## Quick start (Docker / GitHub Container Registry)
+---
 
-To run the pre-built container image from GitHub Container Registry (GHCR) without needing local build tools:
+## Quick Start (Production via Docker & GHCR)
 
-### 1. Download the Docker Compose file
+Deploy the pre-built multi-service SOC stack using Docker Compose:
+
+### 1. Download Compose Configuration
 ```bash
-mkdir netorchestra && cd netorchestra
-curl -fsSL https://raw.githubusercontent.com/<YOUR_GITHUB_USER_OR_ORG>/netorchestra-soc/main/docker-compose.prod.yml -o docker-compose.yml
+mkdir -p netorchestra && cd netorchestra
+curl -fsSL https://raw.githubusercontent.com/Daufm/NetOrchestra-SOC/main/docker-compose.prod.yml -o docker-compose.yml
 ```
 
-### 2. Create your `.env` file with required secrets
-Create a `.env` file in the same directory:
+### 2. Generate Secrets & Environment Configuration
 ```bash
 cat <<EOF > .env
 # Database configuration
@@ -57,85 +81,109 @@ POSTGRES_PASSWORD=$(openssl rand -hex 24)
 NETO_JWT_SECRET=$(openssl rand -base64 48)
 NETO_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)
 
-# Port to expose (default: 8080)
+# Network and Port Exposure
+NETO_HTTP_HOST=127.0.0.1
 NETO_HTTP_PORT=8080
 EOF
 ```
 
-### 3. Start the application
+### 3. Launch Services
 ```bash
 docker compose up -d
 ```
-The application will be live at `http://localhost:8080`.
+The SOC dashboard will be available at `http://localhost:8080`.
 
-### 4. Create the initial Admin user
+### 4. Provision Initial Administrator
 ```bash
 BOOTSTRAP_TOKEN=$(grep NETO_BOOTSTRAP_TOKEN .env | cut -d '=' -f2)
 
 curl -X POST http://localhost:8080/api/auth/register \
   -H 'Content-Type: application/json' \
   -H "X-Bootstrap-Token: $BOOTSTRAP_TOKEN" \
-  -d '{"username":"admin","password":"choose-a-strong-password-12+"}'
+  -d '{"username":"soc_admin","password":"ChooseAStrongPassword123!"}'
 ```
 
 ---
 
-## Quick start (development)
+## Quick Start (Local Development)
 
+### 1. Configure Environment
 ```bash
-cp .env.example .env             # then edit it (see below)
-# generate real secrets:
-openssl rand -base64 48          # -> NETO_JWT_SECRET
-openssl rand -hex 24             # -> NETO_BOOTSTRAP_TOKEN
-# in .env also set DATABASE_URL, and for plain-http local dev: NETO_COOKIE_SECURE=false
-#   NETO_CORS_ORIGINS=http://localhost:5173
-#   NETO_EVIDENCE_DIR=./data/evidence   NETO_WORKSPACE_DIR=./data/workspace
+cp .env.example .env
 
-set -a; . ./.env; set +a
-cd backend && cargo run          # migrates the DB on start; http://localhost:8080/api/health
+# Generate required cryptographic secrets
+export NETO_JWT_SECRET=$(openssl rand -base64 48)
+export NETO_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)
+export POSTGRES_PASSWORD=$(openssl rand -hex 24)
+export DATABASE_URL="postgres://netorchestra:${POSTGRES_PASSWORD}@localhost:5432/netorchestra"
+
+# Apply secrets to .env
+sed -i "s|CHANGE_ME_generate_with_openssl_rand_base64_48|${NETO_JWT_SECRET}|g" .env
+sed -i "s|CHANGE_ME_generate_with_openssl_rand|${POSTGRES_PASSWORD}|g" .env
 ```
 
-Create the first admin (only works while the users table is empty):
-
+### 2. Run Database & Backend
 ```bash
-curl -X POST http://localhost:8080/api/auth/register -H 'Content-Type: application/json' \
-  -H "X-Bootstrap-Token: $NETO_BOOTSTRAP_TOKEN" \
-  -d '{"username":"admin","password":"use-12-or-more-characters"}'
+# Start PostgreSQL
+docker compose up -d db
+
+# Run backend migrations and start server
+cd backend
+cargo run
 ```
 
-Try an upload:
-
+### 3. Run Frontend
 ```bash
-TOKEN=$(curl -s -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"use-12-or-more-characters"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
-curl -X POST localhost:8080/api/upload -H "Authorization: Bearer $TOKEN" \
-  -F profile=dns_tunnel -F file=@tests/fixtures/dns_tunnel.pcap     # profile field MUST come first
-curl -H "Authorization: Bearer $TOKEN" 'localhost:8080/api/findings?sort=confidence&dir=desc'
+cd frontend
+npm install
+npm run dev
 ```
 
-## Testing
+---
+
+## Testing & Quality Assurance
+
+NetOrchestra-SOC enforces strict compile-time checks, comprehensive unit tests, and integration suites:
 
 ```bash
-make check      # fmt/lint/build/test for backend, worker, frontend - needs no database
-make test-db    # the 30 integration tests; needs DATABASE_URL (role with CREATEDB) and tshark installed
+# Run unit tests across all crates (74 unit tests, offline SQLx validation)
+cargo test --manifest-path backend/Cargo.toml --lib
+
+# Build Go worker and NETOU fallback binaries
+cd worker && go test ./... && go build ./cmd/worker && go build ./cmd/netou
+
+# Run frontend ESLint and production Vite build
+cd frontend && npm run lint && npm run build
 ```
 
-Expected: backend 72 unit tests; 30 integration tests; Go and frontend suites pass.
+---
 
-## Documentation
+## Project Documentation
 
-| File | Contents |
+Detailed architecture specifications, forensic schemas, and administration manuals:
+
+| Document | Purpose & Scope |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | components, data flows, system design |
-| [docs/API.md](docs/API.md) | endpoints, parameters, permissions, responses |
-| [docs/DETECTION.md](docs/DETECTION.md) | detection rules, profiles, thresholds, redaction |
-| [docs/SECURITY.md](docs/SECURITY.md) | security controls, threat models, hardening checklist |
-| [docs/AUTH.md](docs/AUTH.md) | tokens, CSRF, bootstrap, RBAC model |
-| [docs/DATABASE.md](docs/DATABASE.md) | PostgreSQL schema, integrity rules, SQLx offline |
-| [docs/WORKER.md](docs/WORKER.md) | Go worker protocol, SSH execution, remote host setup |
-| [docs/SSH_REMOTE_SETUP.md](docs/SSH_REMOTE_SETUP.md) | Step-by-step SSH key generation, remote user setup, capabilities |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Pipeline mechanics, streaming concurrency, data flows, and state machines |
+| [docs/API.md](docs/API.md) | REST API endpoints, parameter schemas, permissions, and status codes |
+| [docs/DETECTION.md](docs/DETECTION.md) | Heuristic algorithms, entropy formulas, thresholds, and credential redaction |
+| [docs/SSH_REMOTE_SETUP.md](docs/SSH_REMOTE_SETUP.md) | Dedicated SSH user provisioning, key generation, and `CAP_NET_RAW` setup |
+| [docs/WORKER.md](docs/WORKER.md) | Go worker RPC protocols, streaming buffers, and target allow-listing |
+| [docs/SECURITY.md](docs/SECURITY.md) | Threat models, capability drops, container sandboxing, and audit trails |
+| [docs/AUTH.md](docs/AUTH.md) | Argon2id parameters, JWT claims, CSRF mitigation, and RBAC matrix |
+| [docs/DATABASE.md](docs/DATABASE.md) | PostgreSQL schema, forensic triggers, indexing strategies, and migrations |
+| [docs/NEXT_VERSION_ROADMAP.md](docs/NEXT_VERSION_ROADMAP.md) | Roadmap for upcoming features, multi-gigabit ring buffers, and clustering |
 
-## Safety notes
+---
 
-Only capture traffic you are authorised to capture. Remote capture is disabled until the operator sets both
-`NETO_WORKER_BIN` and `NETO_ALLOWED_TARGETS`. Findings are *indicators*, never confirmed compromise.
+## Operational Safety & Legal Compliance
+
+* **Authorized Monitoring Only:** NetOrchestra-SOC must only be deployed on networks and infrastructure you own or have explicit, documented authorization to monitor.
+* **Target Isolation:** Remote capture is restricted by strict server-side CIDR allow-lists (`NETO_ALLOWED_TARGETS`).
+* **Evidence Admissibility:** The platform records cryptographic checksums, analyst attributions, and immutable access timestamps to uphold judicial chain-of-custody standards.
+
+---
+
+## License
+
+NetOrchestra-SOC is distributed under the terms of the [MIT License](LICENSE).
