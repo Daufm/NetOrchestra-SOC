@@ -93,7 +93,26 @@ docker compose up -d
 ```
 The SOC dashboard will be available at `http://localhost:9094`.
 
-### 4. Provision Initial Administrator
+### 4. Verify System Health on the Host
+Verify container status and service health directly from your host terminal:
+
+```bash
+# 1. Check container running state and health status
+docker compose ps
+
+# 2. Check backend service health (Liveness probe)
+curl -s http://localhost:9094/api/health
+# Expected: {"status":"ok","service":"netorchestra-backend","version":"0.1.0"}
+
+# 3. Check database connectivity (Readiness probe)
+curl -s http://localhost:9094/api/ready
+# Expected: {"status":"ready","database":"up"}
+
+# 4. View real-time container logs (optional)
+docker compose logs -f netorchestra
+```
+
+### 5. Provision Initial Administrator
 ```bash
 BOOTSTRAP_TOKEN=$(grep NETO_BOOTSTRAP_TOKEN .env | cut -d '=' -f2)
 
