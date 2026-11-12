@@ -36,6 +36,11 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install system dependencies (TShark)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tshark
+
       - name: Backend Unit Tests
         run: |
           cd backend

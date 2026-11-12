@@ -90,6 +90,10 @@ func TestTsharkCompatible(t *testing.T) {
 	}
 	f.Close()
 
+	if _, err := exec.LookPath("tshark"); err != nil {
+		t.Skip("tshark not found on PATH; skipping external compatibility test")
+	}
+
 	cmd := exec.Command("tshark", "-r", f.Name(), "-T", "fields", "-e", "ip.src", "-e", "ip.dst")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
