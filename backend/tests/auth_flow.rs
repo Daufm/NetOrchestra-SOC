@@ -172,6 +172,13 @@ async fn bootstrap_and_registration_policy(pool: PgPool) {
     let app = app(pool, &[]);
     let body = json!({"username": "admin", "password": PW});
 
+    // Before any user is registered, auth status reports bootstrap mode.
+    let (s, _, b) = call(&app, Method::GET, "/api/auth/status", None, &[]).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(b["has_users"], false);
+    assert_eq!(b["bootstrap_mode"], true);
+    assert_eq!(b["allow_registration"], true);
+
     // First user: bootstrap token required.
     let (s, _, _) = call(
         &app,
@@ -204,6 +211,13 @@ async fn bootstrap_and_registration_policy(pool: PgPool) {
     .await;
     assert_eq!(s, StatusCode::CREATED);
     assert_eq!(b["role"], "ADMIN");
+
+    // Once an admin is created, auth status reports has_users=true and bootstrap_mode=false.
+    let (s, _, b) = call(&app, Method::GET, "/api/auth/status", None, &[]).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(b["has_users"], true);
+    assert_eq!(b["bootstrap_mode"], false);
+    assert_eq!(b["allow_registration"], false);
 
     // Registration is disabled by default once an admin exists, bootstrap token or not.
     let (s, _, _) = call(

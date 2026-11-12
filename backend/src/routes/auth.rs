@@ -44,6 +44,7 @@ const BOOTSTRAP_LOCK_KEY: i64 = 7_340_301;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/status", get(auth_status))
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/refresh", post(refresh))
@@ -212,9 +213,21 @@ fn csrf_cookie(state: &AppState, value: String) -> Cookie<'static> {
         .build()
 }
 
-fn clear_cookies(jar: CookieJar) -> CookieJar {
-    jar.remove(Cookie::build((REFRESH_COOKIE, "")).path("/api/auth"))
-        .remove(Cookie::build((CSRF_COOKIE, "")).path("/"))
+fn clear_cookies(state: &AppState, jar: CookieJar) -> CookieJar {
+    jar.remove(
+        Cookie::build((REFRESH_COOKIE, ""))
+            .path("/api/auth")
+            .http_only(true)
+            .secure(state.config.cookie_secure)
+            .same_site(SameSite::Strict),
+    )
+    .remove(
+        Cookie::build((CSRF_COOKIE, ""))
+            .path("/")
+            .http_only(false)
+            .secure(state.config.cookie_secure)
+            .same_site(SameSite::Strict),
+    )
 }
 
 /// CSRF defence for cookie-authenticated endpoints.
@@ -304,6 +317,31 @@ async fn revoke_user_sessions(
     .execute(conn)
     .await?;
     Ok(r.rows_affected())
+}
+
+// ------------------------------------------------------------ status
+
+#[derive(Serialize)]
+struct AuthStatusView {
+    has_users: bool,
+    allow_registration: bool,
+    bootstrap_mode: bool,
+}
+
+async fn auth_status(
+    State(state): State<AppState>,
+) -> Result<Json<AuthStatusView>, AppError> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM users")
+        .fetch_one(&state.pool)
+        .await?;
+    let has_users = count > 0;
+    let bootstrap_mode = !has_users;
+    let allow_registration = bootstrap_mode || state.config.allow_registration;
+    Ok(Json(AuthStatusView {
+        has_users,
+        allow_registration,
+        bootstrap_mode,
+    }))
 }
 
 // ------------------------------------------------------------ register
@@ -603,7 +641,7 @@ async fn refresh(
     match refresh_inner(&state, &meta, &headers, jar.clone()).await {
         Ok(ok) => ok.into_response(),
         // Any failed refresh also clears the client's cookies.
-        Err(e) => (clear_cookies(jar), e).into_response(),
+        Err(e) => (clear_cookies(&state, jar), e).into_response(),
     }
 }
 
@@ -718,7 +756,7 @@ async fn logout(
     jar: CookieJar,
 ) -> Result<(CookieJar, StatusCode), AppError> {
     let Some(raw) = jar.get(REFRESH_COOKIE).map(|c| c.value().to_string()) else {
-        return Ok((clear_cookies(jar), StatusCode::NO_CONTENT));
+        return Ok((clear_cookies(&state, jar), StatusCode::NO_CONTENT));
     };
     // Without CSRF protection a third party could force-logout a user.
     check_csrf(&state, &headers, &jar)?;
@@ -742,7 +780,7 @@ async fn logout(
         )
         .await;
     }
-    Ok((clear_cookies(jar), StatusCode::NO_CONTENT))
+    Ok((clear_cookies(&state, jar), StatusCode::NO_CONTENT))
 }
 
 async fn logout_all(
@@ -761,7 +799,7 @@ async fn logout_all(
             .detail(json!({"sessions_revoked": n})),
     )
     .await;
-    Ok((clear_cookies(jar), StatusCode::NO_CONTENT))
+    Ok((clear_cookies(&state, jar), StatusCode::NO_CONTENT))
 }
 
 // ------------------------------------------------------------------ me
@@ -840,7 +878,7 @@ async fn change_password(
     )
     .await;
     // All sessions (including this one) are revoked: the client must log in again.
-    Ok((clear_cookies(jar), StatusCode::NO_CONTENT))
+    Ok((clear_cookies(&state, jar), StatusCode::NO_CONTENT))
 }
 
 async fn admin_reset_password(
@@ -1216,7 +1254,7 @@ async fn delete_session(
     )
     .await;
     let jar = if family == auth.session_family {
-        clear_cookies(jar)
+        clear_cookies(&state, jar)
     } else {
         jar
     };

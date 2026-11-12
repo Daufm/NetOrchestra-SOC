@@ -1,12 +1,28 @@
-import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertCircle, ShieldCheck, UserPlus } from "lucide-react";
 import { useAuth } from "../state/AuthContext.jsx";
+import { getAuthStatus } from "../api/client.js";
 
 export default function Login({ onRegister }) {
   const { login } = useAuth();
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [authStatus, setAuthStatus] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    getAuthStatus()
+      .then((status) => {
+        if (active) setAuthStatus(status);
+      })
+      .catch(() => {
+        // If error fetching status, fail closed (no public register)
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function submit(event) {
     event.preventDefault();
@@ -56,9 +72,40 @@ export default function Login({ onRegister }) {
         >
           {submitting ? "Authenticating..." : "Sign in"}
         </button>
-        <button type="button" onClick={onRegister} className="mt-3 w-full rounded border border-soc-border px-4 py-2 text-sm text-slate-300 hover:border-soc-neon">
-          Create account
-        </button>
+
+        {authStatus?.bootstrap_mode && (
+          <div className="mt-5 rounded-lg border border-yellow-500/40 bg-yellow-950/20 p-3.5 text-xs text-yellow-300">
+            <div className="flex items-center gap-1.5 font-semibold text-yellow-400">
+              <AlertCircle size={15} /> System Not Initialized
+            </div>
+            <p className="mt-1 text-slate-400 text-[11px]">
+              No accounts exist yet. Use your deployment bootstrap token to initialize the primary administrator account.
+            </p>
+            <button
+              type="button"
+              onClick={onRegister}
+              className="mt-3 w-full rounded border border-soc-neon bg-soc-neon/10 py-2 text-xs font-semibold text-soc-neon hover:bg-soc-neon/20 transition flex items-center justify-center gap-1.5"
+            >
+              <UserPlus size={14} /> Initialize Administrator Account
+            </button>
+          </div>
+        )}
+
+        {!authStatus?.bootstrap_mode && authStatus?.allow_registration && (
+          <button
+            type="button"
+            onClick={onRegister}
+            className="mt-3 w-full rounded border border-soc-border px-4 py-2 text-sm text-slate-300 hover:border-soc-neon"
+          >
+            Create account
+          </button>
+        )}
+
+        {authStatus && !authStatus.bootstrap_mode && !authStatus.allow_registration && (
+          <p className="mt-4 text-center text-xs text-slate-500">
+            Self-registration is disabled. Accounts must be provisioned by a SOC Administrator.
+          </p>
+        )}
       </form>
     </main>
   );

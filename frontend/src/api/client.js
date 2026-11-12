@@ -63,6 +63,10 @@ export async function refreshAccessToken() {
 export async function apiFetch(path, options = {}, canRefresh = true) {
   const headers = new Headers(options.headers);
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const csrf = csrfToken || readCookie("neto_csrf");
+  if (csrf && !headers.has("X-CSRF-Token")) {
+    headers.set("X-CSRF-Token", csrf);
+  }
   if (options.body && !headers.has("Content-Type") && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
@@ -87,6 +91,10 @@ export async function apiDownload(path, options = {}, canRefresh = true) {
     throw new Error(body?.error?.message || `Request failed (${response.status})`);
   }
   return response;
+}
+
+export async function getAuthStatus() {
+  return apiFetch("/api/auth/status", {}, false);
 }
 
 export async function login(username, password) {
@@ -153,9 +161,20 @@ export async function changePassword(currentPassword, newPassword) {
 }
 
 export async function logout() {
+  const csrf = csrfToken || readCookie("neto_csrf");
   try {
-    await apiFetch("/api/auth/logout", { method: "POST" });
+    await apiFetch(
+      "/api/auth/logout",
+      {
+        method: "POST",
+        headers: csrf ? { "X-CSRF-Token": csrf } : {},
+      },
+      false
+    );
+  } catch (err) {
+    console.warn("Logout request failed:", err);
   } finally {
     clearAuthTokens();
+    document.cookie = "neto_csrf=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   }
 }
