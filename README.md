@@ -83,7 +83,7 @@ NETO_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)
 
 # Network and Port Exposure
 NETO_HTTP_HOST=127.0.0.1
-NETO_HTTP_PORT=8080
+NETO_HTTP_PORT=9094
 EOF
 ```
 
@@ -91,13 +91,13 @@ EOF
 ```bash
 docker compose up -d
 ```
-The SOC dashboard will be available at `http://localhost:8080`.
+The SOC dashboard will be available at `http://localhost:9094`.
 
 ### 4. Provision Initial Administrator
 ```bash
 BOOTSTRAP_TOKEN=$(grep NETO_BOOTSTRAP_TOKEN .env | cut -d '=' -f2)
 
-curl -X POST http://localhost:8080/api/auth/register \
+curl -X POST http://localhost:9094/api/auth/register \
   -H 'Content-Type: application/json' \
   -H "X-Bootstrap-Token: $BOOTSTRAP_TOKEN" \
   -d '{"username":"soc_admin","password":"ChooseAStrongPassword123!"}'

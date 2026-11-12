@@ -31,7 +31,7 @@ services:
     ports:
       # Localhost-only by default. Set NETO_HTTP_HOST=0.0.0.0 to expose on the
       # network — put TLS in front and set NETO_COOKIE_SECURE=true when you do.
-      - "${NETO_HTTP_HOST:-127.0.0.1}:${NETO_HTTP_PORT:-8080}:80"
+      - "${NETO_HTTP_HOST:-127.0.0.1}:${NETO_HTTP_PORT:-9094}:80"
     env_file:
       - .env
     environment:
@@ -45,7 +45,7 @@ services:
       NETO_WORKER_BIN: /usr/local/bin/netorchestra-worker
       NETO_WORKER_KEYS_DIR: /run/secrets/ssh
       NETO_WORKER_KNOWN_HOSTS: /etc/netorchestra/known_hosts
-      NETO_CORS_ORIGINS: http://localhost:${NETO_HTTP_PORT:-8080}
+      NETO_CORS_ORIGINS: http://localhost:${NETO_HTTP_PORT:-9094}
       NETO_COOKIE_SECURE: ${NETO_COOKIE_SECURE:-false}
     volumes:
       # [Fix #6] Named volumes persist evidence and workspace across container

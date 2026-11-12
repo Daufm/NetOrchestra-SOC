@@ -24,14 +24,14 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${NETO_HTTP_HOST:-127.0.0.1}:${NETO_HTTP_PORT:-8080}:80"
+      - "${NETO_HTTP_HOST:-127.0.0.1}:${NETO_HTTP_PORT:-9094}:80"
     env_file:
       - .env
     environment:
       DATABASE_URL: >-
         postgres://${POSTGRES_USER:-netorchestra}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-netorchestra}
       NETO_BIND_ADDR: 0.0.0.0:8080
-      NETO_CORS_ORIGINS: http://localhost:${NETO_HTTP_PORT:-8080}
+      NETO_CORS_ORIGINS: http://localhost:${NETO_HTTP_PORT:-9094}
       NETO_COOKIE_SECURE: ${NETO_COOKIE_SECURE:-false}
     volumes:
       - evidence-data:/var/lib/netorchestra/evidence

@@ -21,7 +21,7 @@ COPY backend/migrations ./migrations
 RUN cargo build --release --locked
 
 # ---------------------------------------------------------------------------
-# Worker (Go)
+# Worker & NETOU (Go)
 # ---------------------------------------------------------------------------
 FROM golang:1.22-bookworm AS worker-builder
 WORKDIR /src/worker
@@ -29,6 +29,7 @@ COPY worker/go.mod worker/go.sum* ./
 RUN go mod download
 COPY worker ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /netorchestra-worker ./cmd/worker
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /netou ./cmd/netou
 
 # ---------------------------------------------------------------------------
 # Frontend (React)
@@ -84,12 +85,14 @@ RUN apt-get update \
 
 COPY --from=backend-builder /src/backend/target/release/netorchestra-backend /usr/local/bin/netorchestra-backend
 COPY --from=worker-builder /netorchestra-worker /usr/local/bin/netorchestra-worker
+COPY --from=worker-builder /netou /usr/local/bin/netou
 COPY --from=frontend-builder /src/frontend/dist /usr/share/nginx/html
 
 # [Fix #2] Binary ownership: Rust/Go binaries are owned root, executable by
 # neto only via the entrypoint's setpriv call. No SUID bits.
 RUN chmod 0755 /usr/local/bin/netorchestra-backend \
-              /usr/local/bin/netorchestra-worker
+              /usr/local/bin/netorchestra-worker \
+              /usr/local/bin/netou
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/nginx-security.conf /etc/nginx/conf.d/security.conf
