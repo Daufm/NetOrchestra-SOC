@@ -1,0 +1,27 @@
+.git
+.gitignore
+
+# Secrets must never end up in the build context / image layers
+.env
+.env.*
+!.env.example
+secrets/
+
+# Build artifacts and dependencies (rebuilt inside the image)
+backend/target/
+worker/bin/
+frontend/node_modules/
+frontend/dist/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+
+# Misc
+*.log
+.DS_Store
+.idea/
+.vscode/
+docker-compose*.yml
+docker-compose*.yml
+docker-compose*.yaml

@@ -1,0 +1,121 @@
+services:
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-netorchestra}
+      POSTGRES_USER: ${POSTGRES_USER:-netorchestra}
+      # [Fix #4] No fallback password. POSTGRES_PASSWORD MUST be set explicitly
+      # in your .env file. The entrypoint also rejects the well-known placeholder.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env - never use a default in production}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # [Fix #8] No ports published: PostgreSQL is reachable only on the internal
+    # Docker network (db:5432). Never publish 5432 externally.
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  netorchestra:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Localhost-only by default. Set NETO_HTTP_HOST=0.0.0.0 to expose on the
+      # network — put TLS in front and set NETO_COOKIE_SECURE=true when you do.
+      - "${NETO_HTTP_HOST:-127.0.0.1}:${NETO_HTTP_PORT:-8080}:80"
+    env_file:
+      - .env
+    environment:
+      # [Fix #4] Build DATABASE_URL from individual parts so the password is
+      # never hard-coded here. Special characters in the password must be
+      # percent-encoded in .env (e.g. @ → %40, # → %23, : → %3A).
+      # Use a simple alphanumeric password to avoid encoding issues entirely.
+      DATABASE_URL: >-
+        postgres://${POSTGRES_USER:-netorchestra}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-netorchestra}
+      NETO_BIND_ADDR: 0.0.0.0:8080
+      NETO_WORKER_BIN: /usr/local/bin/netorchestra-worker
+      NETO_WORKER_KEYS_DIR: /run/secrets/ssh
+      NETO_WORKER_KNOWN_HOSTS: /etc/netorchestra/known_hosts
+      NETO_CORS_ORIGINS: http://localhost:${NETO_HTTP_PORT:-8080}
+      NETO_COOKIE_SECURE: ${NETO_COOKIE_SECURE:-false}
+    volumes:
+      # [Fix #6] Named volumes persist evidence and workspace across container
+      # recreations. Ownership is validated (not blindly re-chowned) at startup.
+      - evidence-data:/var/lib/netorchestra/evidence
+      - workspace-data:/var/lib/netorchestra/workspace
+      - ./secrets/ssh:/run/secrets/ssh:ro
+      - ./secrets/known_hosts:/etc/netorchestra/known_hosts:ro
+    # Give the backend time to finish in-flight jobs on `docker compose stop`
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    # [Fix #8] Container isolation hardening
+    security_opt:
+      - no-new-privileges:true
+    # [Fix #2 / Fix #8] Capability audit for the actual startup sequence:
+    #
+    #   Step 1 — volume chown (entrypoint, running as root):
+    #     CHOWN       — chown -R neto:neto on evidence/workspace dirs
+    #     DAC_OVERRIDE — traverse directories not owned by root
+    #
+    #   Step 2 — privilege drop (setpriv → neto for Rust + Go):
+    #     SETUID      — setpriv changes UID
+    #     SETGID      — setpriv changes GID
+    #     (setpcap would be needed only to further drop caps after exec)
+    #
+    #   Step 3 — Nginx binding to port 80:
+    #     NET_BIND_SERVICE — ports < 1024 require this when not running as root
+    #                        with full privileges. Remove if you switch to :8080.
+    #
+    #   Step 4 — Offline PCAP analysis (tshark reading files as neto):
+    #     No extra capabilities needed. tshark's setuid bit is removed at build.
+    #
+    # NOTE: `no-new-privileges:true` prevents any remaining setuid binary from
+    # re-elevating. Combined with cap_drop:ALL it means post-exec escalation
+    # is impossible even if a setuid binary slipped through.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN              # entrypoint: fix volume ownership at startup
+      - DAC_OVERRIDE       # entrypoint: traverse dirs during chown
+      - SETUID             # entrypoint: setpriv drops to neto
+      - SETGID             # entrypoint: setpriv drops to neto
+      - NET_BIND_SERVICE   # nginx: bind to port 80
+
+    # [Fix #5] Offline PCAP analysis works without any extra capabilities.
+    # For live capture, uncomment and also add neto to the wireshark group:
+    #   cap_add:
+    #     - NET_RAW
+    #     - NET_ADMIN
+    # NEVER use `privileged: true`.
+
+    # Read-only filesystem hardening (enable once all write paths are on tmpfs)
+    # read_only: true
+    # tmpfs:
+    #   - /tmp:mode=1777
+    #   - /run/nginx:mode=755
+    #   - /var/lib/nginx:mode=755
+    #   - /var/log/nginx:mode=755
+    #   - /var/cache/nginx:mode=755
+
+volumes:
+  postgres-data:
+  # [Fix #6] Explicitly named volumes survive `docker compose down` (but NOT
+  # `docker compose down -v`). Back them up before destructive operations:
+  #   docker run --rm -v evidence-data:/data -v $(pwd)/backups:/out \
+  #     debian:bookworm-slim tar czf /out/evidence-$(date +%Y%m%d).tar.gz -C /data .
+  evidence-data:
+  workspace-data:
