@@ -18,6 +18,7 @@ RUN cargo chef cook --release --locked --recipe-path recipe.json
 COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/src ./src
 COPY backend/migrations ./migrations
+COPY docs/ /src/docs/
 RUN cargo build --release --locked
 
 # ---------------------------------------------------------------------------
